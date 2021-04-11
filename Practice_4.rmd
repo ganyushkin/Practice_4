@@ -1,0 +1,112 @@
+---
+title: "Лабораторная Работа №4"
+author: "Ганюшкин Александр"
+date: "11 04 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Вариант -- 5
+
+#Задание:
+
+С помощью «knitr» создать html-отчёт с короткими пояснениями к данным и с двумя картами:
+
+1. Карта-хороплет регионов РФ, входящих в состав федерального округа, указанного в варианте, построенная функцией spplot()по данным сборников “Регионы России” за последний доступный год;
+
+2. Такая же карта но со статистикой за 2010 год, построенная функцией ggplot().
+
+#Задание из варианта:
+
+Северо-западный федеральный округ, любой показатель из раздела «Здравоохрание».
+
+```{r, message=F, warning=F}
+# Подключаем библиотеки
+library('R.utils')               # gunzip() для распаковки архивов 
+library('sp')                    # функция spplot()
+library('ggplot2')               # функция ggplot()
+library('RColorBrewer')          # цветовые палитры
+require('rgdal')                 # функция readOGR()
+library('broom')                 # функция tidy()
+require('dplyr')                 # функция join()
+library('scales')                # функция pretty_breaks()
+library('mapproj')               # проекции для карт
+library('gpclib')
+library('maptools')
+require('plyr')                  # функция join()
+gpclibPermit()
+
+# Загружаем данные из ShapeFile
+Regions <- readOGR("./data/ShapeFiles/admin_level_4.shp")
+# Индексы регионов, которые потребуются
+Regions <- Regions[c(27, 38, 28, 6, 8, 48, 3, 10, 52, 46), ]
+# Данные с росстата
+data <- read.csv2('./data/2010.csv', stringsAsFactors = F)
+data
+
+# Преобразуем имена в факторы
+Regions@data$name <- as.factor(Regions@data$name)
+
+# Делаем слияние шейп-файла с данными с росстата
+Regions@data <- merge(Regions@data, data, by.x = 'name', by.y = 'reg', sort = FALSE)
+
+# Задаём палитру
+mypalette <-colorRampPalette(c('whitesmoke', 'coral3'))
+
+# Строим карту
+spplot(Regions, 'statistic', col.regions = mypalette(16),
+       col = 'coral4', main = 'ЧИСЛО БОЛЬНИЧНЫХ КОЕК (тыс.)',
+       panel = function(x, y, z, subscripts, ...){
+         panel.polygonsplot(x, y, z, subscripts, ...)
+         sp.text(coordinates(Regions),
+                 Regions$name[subscripts], cex = 0.5)
+       }, xlim = c(10, 75), ylim = c(50, 80))
+
+# Очищаем память
+rm(Regions)
+```
+
+```{r, message=F, warning=F}
+gpclibPermit()
+
+# Загрузка данных зза 2019 год
+data <- read.csv2('./data/2019.csv', stringsAsFactors = F)
+data
+
+# Считываем шейп-файл
+Regions <- readOGR('./data/ShapeFiles/admin_level_4.shp')
+
+# Оставляем нужные нам регионы
+Regions <- Regions[c(27, 38, 28, 6, 8, 48, 3, 10, 52, 46), ]
+
+# Создаем столбец id для связи с другими таблицами
+Regions@data$id <- Regions@data$name
+# Преобразовываем SpatialPolygonsDataFrame в data.frame
+Regions.points <- fortify(Regions, region = 'id')
+# Добавляем к координатам сведения о регионах
+Regions.df <- join(Regions.points, Regions@data, by = 'id')
+
+data$id <- data$reg
+Regions.df <- join(Regions.df, data[, c('id', 'statistic')], by = 'id')
+
+# Координаты центров полигонов (для подписей регионов)
+centroids.df <- as.data.frame(coordinates(Regions))
+
+centroids.df$id <- Regions@data$id
+colnames(centroids.df) <- c('long', 'lat', 'id')
+
+# Строим карту
+ggplot() + geom_polygon(data = Regions.df,
+                              aes(long, lat, group = group, fill = statistic)) +
+  geom_path(data = Regions.df, aes(long, lat, group = group),
+            color = 'coral4') +
+  coord_map(projection = 'gilbert', xlim = c(10, 65), ylim = c(50, 70)) +
+  scale_fill_distiller(palette = 'OrRd', direction = 1,
+                       breaks = pretty_breaks(n = 5)) +
+  labs(x = 'Долгота', y = 'Широта',
+       title = 'ЧИСЛО БОЛЬНИЧНЫХ КОЕК (тыс.)') +
+  geom_text(data = centroids.df, aes(long, lat, label = id))
+```
